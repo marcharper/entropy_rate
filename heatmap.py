@@ -32,27 +32,27 @@ def heatmap(rs, Ns, C, cmap=None):
     return plot_obj
         
 #row = [r, N, state, rr_mu, rr_s, rr_count, inf_mu, inf_mu_s, inf_mode, inf_mode_s]
-def prepare_heatmap_data(filename):
+def prepare_heatmap_data(filename, xindex=0, yindex=1, cindex=-1):
     handle = open(filename)
     reader = csv.reader(handle)
     data = [row for row in reader]
     # Grab horizontal and vertical coordinates.
-    rs = list(sorted(set([float(x[0]) for x in data])))
-    Ns = list(sorted(set([float(x[1]) for x in data])))
+    rs = list(sorted(set([float(x[xindex]) for x in data])))
+    Ns = list(sorted(set([float(x[yindex]) for x in data])))
     # Prepare to map to a grid.
     r_d = dict(zip(rs, range(len(rs))))
     N_d = dict(zip(Ns, range(len(Ns))))
     C = numpy.zeros(shape=(len(rs), len(Ns)))
     # Extract relaveent data and populate color matrix.
     for row in data:
-        r = float(row[0])
-        N = float(row[1])
-        v = float(row[-1])
+        r = float(row[xindex])
+        N = float(row[yindex])
+        v = float(row[cindex])
         C[r_d[r]][N_d[N]] = v
     return rs, Ns, C
     
-def main(filename):
-    rs, Ns, C = prepare_heatmap_data(filename)
+def main(filename, xindex=0, yindex=1, cindex=-1):
+    rs, Ns, C = prepare_heatmap_data(filename, xindex=xindex, yindex=yindex, cindex=cindex)
     heatmap(rs, Ns, C)
     
 if __name__ == '__main__':
