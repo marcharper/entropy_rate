@@ -3,6 +3,7 @@ from math import exp, log
 import multiprocessing
 
 import numpy
+from numpy.linalg import matrix_power
 from matplotlib import pyplot
 from scipy.misc import comb
 
@@ -214,6 +215,46 @@ def wright_fisher_transitions(N, fitness_landscape=None, incentive=None, mutatio
             else:
                 d[(a, j)] = comb(N,j, exact=True) * exp(j * log(up) + (N-j) * log(down))
     return d    
+
+def wright_fisher_transitions(N, fitness_landscape=None, incentive=None, mutations=None, w=None):
+    """Computes transition probabilities for the Markov process. Since the transition matrix is tri-diagonal (i.e. sparse), use a dictionary."""
+    if not mutations:
+        mutations = boundary_mutations()
+    if not w:
+        w = 1.
+    d = dict()
+    d = numpy.zeros((N+1, N+1))
+    mu, nu = mutations(N, 0)
+    d[0][1] = mu
+    d[0][0] = 1- mu
+    #d[(0,1)] = mu
+    #d[(0,0)] = 1. - mu
+    #for a in range(2, N+1):
+        #d[(0,a)] = 0
+    mu, nu = mutations(N, N)
+    d[N][N-1] = nu
+    d[N][N] = 1 - nu
+    #d[(N, N-1)] = nu
+    #d[(N, N)] = 1. - nu
+    #for a in range(2, N+1):
+        #d[(N,N-a)] = 0
+    for a in range(1, N):
+        b = N - a
+        if incentive:
+            i = normalize(incentive([a,b]))
+        else:
+            i = normalize(multiply_vectors([a, b], fitness_landscape([a,b])))
+        i[0] = 1. - w + w * i[0]
+        i[1] = 1. - w + w * i[1]
+        mu, nu = mutations(N, a)
+        up = ((i[0] * (1. - mu) + i[1]*nu))
+        down = ((i[0] * mu + i[1]*(1. - nu)))
+        for j in range(0, N+1):
+            if (j == 0) or (j == N):
+                d[a][j] = exp(j * log(up) + (N-j) * log(down))
+            else:
+                d[a][j] = comb(N,j, exact=True) * exp(j * log(up) + (N-j) * log(down))
+    return d
     
 def wright_fisher_stationary(N, d, iterations=None):
     from mpsim.stationary import Cache, Graph, stationary_distribution_generator
@@ -255,6 +296,10 @@ def wright_fisher_test(N, m, incentive_func=None, eta=None, w=None, mutation_fun
     
 if __name__ == '__main__':
     test()
+    m = [[1,1],[1,1]]
+    fitness_landscape = linear_fitness_landscape(m)
+    transitions = wright_fisher_transitions(6, fitness_landscape=fitness_landscape)
+    print transitions
 
 
 
