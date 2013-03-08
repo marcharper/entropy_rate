@@ -43,7 +43,7 @@ def prepare_heatmap_data(data, xindex=0, yindex=1, cindex=-1, xfunc=float, yfunc
         cs[y_d[y]][x_d[x]] = c
     return xs, ys, cs
 
-def heatmap(xs, ys, cs, cmap=None, sep=5, offset=0.5):
+def heatmap(xs, ys, cs, cmap=None, sep=10, offset=0.5):
     if not cmap:
         cmap = get_cmap()
     plot_obj = pyplot.pcolor(cs, cmap=cmap)

@@ -5,7 +5,8 @@ from matplotlib import pyplot
 import numpy
 
 import heatmap
-from entropy_rate import uniform_mutations, boundary_mutations, moran_test, wright_fisher_test, constant_generator, run_batches
+from entropy_rate import uniform_mutations, boundary_mutations, moran_test, constant_generator, run_batches
+from mpsim.math_helpers import binary_entropy
 
 ## Plots ##
 
@@ -21,7 +22,7 @@ def savefig(filename, dpi=400):
     pyplot.savefig(filename, dpi=dpi, bbox_inches='tight')
     pyplot.clf()
 
-def plot_transitions(N, m, mu=0.01, mutation_func=None):
+def plot_moran_transitions(N, m, mu=0.01, mutation_func=None):
     (e, s, d) = moran_test(N, m, incentive_func=None, eta=None, w=None, mutation_func=mutation_func, mu_ab=mu, mu_ba=5*mu, verbose=False, report=True)
     pyplot.figure()
     for i in range(1, N):
@@ -40,8 +41,12 @@ def static_plot(Ns, m, incentive_func=None, eta=None, w=None, mutation_func=None
     for p in [m, incentive_func, eta, w, mutation_func, mu_ab, mu_ba, test_func]:
         params.append(constant_generator(p))
     es = run_batches(params)
-    print es[-1]
-    pyplot.plot(Ns, [x[-1] for x in es])
+    #k = 0.5 + 0.5* math.log(math.pi / 2)    
+    #print mu_ab, (es[-1][-1] - k) / (0.5 * math.log(Ns[-1]))
+    #pyplot.plot(Ns, [(es[i][-1] -k)/(0.5 * math.log(Ns[i])) for i in range(len(es))])
+    #print mu_ab, (es[-1][-1] - k) / (0.5 * math.log(Ns[-1]))
+    print mu_ab, es[-1][-1] - binary_entropy(mu_ab)
+    pyplot.plot(Ns, [es[i][-1] - binary_entropy(mu_ab) for i in range(len(es))])
     return es
 
 def mu_plot(N, m, incentive_func=None, eta=None, w=None, mutation_func=None, mus=None, test_func=None):
