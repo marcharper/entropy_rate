@@ -1,5 +1,6 @@
 import csv
 import math
+import os
 
 from matplotlib import pyplot
 import numpy
@@ -8,17 +9,31 @@ import heatmap
 from entropy_rate import uniform_mutations, boundary_mutations, moran_test, constant_generator, run_batches
 from mpsim.math_helpers import binary_entropy
 
+import matplotlib
+font = {'size': 22}
+matplotlib.rc('font', **font)
+
 ## Plots ##
 
+def ensure_directory(directory):
+    if not os.path.isdir(directory):
+        os.mkdir(directory)
+
 def ensure_digits(total, s):
+    """Make sure filenames are sequential."""
     num_digits = len(str(s))
     total_digits = len(str(total))
     if num_digits < total_digits:
         return "0"*(total_digits - num_digits) + str(s)
     return s
 
-def savefig(filename, dpi=400):
-    pyplot.tight_layout()
+def savefig(filename, dpi=400, directory=None, verbose=True):
+    if directory:
+        ensure_directory(directory)
+        filename = os.path.join(directory, filename)
+    #pyplot.tight_layout()
+    if verbose:
+        print "saving", filename
     pyplot.savefig(filename, dpi=dpi, bbox_inches='tight')
     pyplot.clf()
 
@@ -35,7 +50,7 @@ def plot_moran_transitions(N, m, mu=0.01, mutation_func=None):
     pyplot.figure()
     pyplot.bar(range(len(s)), s)    
 
-def static_plot(Ns, m, incentive_func=None, eta=None, w=None, mutation_func=None, mu_ab=0.001, mu_ba=0.001, test_func=None):
+def static_plot(Ns, m, incentive_func=None, eta=None, w=None, mutation_func=None, mu_ab=0.001, mu_ba=0.001, test_func=None, div_log=False, linewidth=1.5):
     """Plot entropy rate over a range of population sizes."""
     params = [Ns]
     for p in [m, incentive_func, eta, w, mutation_func, mu_ab, mu_ba, test_func]:
@@ -43,10 +58,11 @@ def static_plot(Ns, m, incentive_func=None, eta=None, w=None, mutation_func=None
     es = run_batches(params)
     #k = 0.5 + 0.5* math.log(math.pi / 2)    
     #print mu_ab, (es[-1][-1] - k) / (0.5 * math.log(Ns[-1]))
-    #pyplot.plot(Ns, [(es[i][-1] -k)/(0.5 * math.log(Ns[i])) for i in range(len(es))])
-    #print mu_ab, (es[-1][-1] - k) / (0.5 * math.log(Ns[-1]))
-    print mu_ab, es[-1][-1] - binary_entropy(mu_ab)
-    pyplot.plot(Ns, [es[i][-1] - binary_entropy(mu_ab) for i in range(len(es))])
+    if div_log:
+        pyplot.plot(Ns, [(es[i][-1])/(math.log(Ns[i])) for i in range(len(es))], linewidth=linewidth)
+    else:
+        pyplot.plot(Ns, [es[i][-1] for i in range(len(es))], linewidth=linewidth)
+    print mu_ab, es[-1][-1]
     return es
 
 def mu_plot(N, m, incentive_func=None, eta=None, w=None, mutation_func=None, mus=None, test_func=None):
@@ -90,7 +106,7 @@ def compute_N_r_heatmap_data(Ns, rs, incentive_func=None, eta=None, w=None, muta
             data.append([N, r, mu_ab, mu_ba, e])
     return data
             
-def heatmap_N_r_images(Ns, rs, mus, mutation_func=uniform_mutations, test_func=None):
+def heatmap_N_r_images(Ns, rs, mus, mutation_func=uniform_mutations, test_func=None, directory=None):
     for i in range(len(mus)):
         print i
         mu = mus[i]
@@ -98,7 +114,7 @@ def heatmap_N_r_images(Ns, rs, mus, mutation_func=uniform_mutations, test_func=N
         pyplot.clf()
         heatmap.main(data=data, xindex=1, yindex=0, cindex=-1, xfunc=float, yfunc=int, cfunc=float)
         index = ensure_digits(len(mus),i)
-        pyplot.savefig("heatmap_%s.png" % index, dpi=400)
+        savefig("heatmap_%s.png" % index, directory=directory)
 
 def compute_N_mu_heatmap_data(Ns, mus, r, incentive_func=None, eta=None, w=None, mutation_func=None, test_func=None):
     data = []
@@ -136,17 +152,3 @@ def entropy_test(N=50):
     print max(es)
     pyplot.plot(range(0, N/2), es)
     pyplot.show()
-    
-    
-if __name__ == '__main__':
-    ##rs = numpy.arange(0.6,1.4,0.01)
-    ##Ns = range(3, 100)
-    ##mus = [0.2, 0.1, 0.05, 0.04, 0.03, 0.02, 0.01, 0.005, 0.001, 0.0001, 0.00001]
-    #rs = numpy.arange(0.6,1.4,0.01)
-    #Ns = range(2, 100)
-    #mus = [0.2, 0.1, 0.05, 0.04]
-    #heatmap_N_r_images(Ns, rs, mus, mutation_func=boundary_mutations, test_func=moran_test)
-    #heatmap_N_mu_images(r=.1, mutation_func=boundary_mutations)
-    #heatmap_N_mu_images(r=1., mutation_func=uniform_mutations)
-    
-    pass

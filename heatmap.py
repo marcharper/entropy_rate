@@ -4,15 +4,6 @@ import numpy
 
 from matplotlib import pyplot
 
-### http://matplotlib.sourceforge.net/examples/pylab_examples/multi_image.html    
-##class ImageFollower:
-    ##'update image in response to changes in clim or cmap on another image'
-    ##def __init__(self, follower):
-        ##self.follower = follower
-    ##def __call__(self, leader):
-        ##self.follower.set_cmap(leader.get_cmap())
-        ##self.follower.set_clim(leader.get_clim())
-
 def get_cmap(cmap_name=None):
     if not cmap_name:
         cmap = pyplot.get_cmap('jet')
@@ -43,14 +34,15 @@ def prepare_heatmap_data(data, xindex=0, yindex=1, cindex=-1, xfunc=float, yfunc
         cs[y_d[y]][x_d[x]] = c
     return xs, ys, cs
 
-def heatmap(xs, ys, cs, cmap=None, sep=10, offset=0.5):
+def heatmap(xs, ys, cs, cmap=None, sep=10, offset=0.):
     if not cmap:
         cmap = get_cmap()
     plot_obj = pyplot.pcolor(cs, cmap=cmap)
     #plot_obj_2.callbacksSM.connect('changed', ImageFollower(color_obj_2))
     pyplot.colorbar()
     pyplot.xticks([x + offset for x in range(len(xs))][::sep], xs[::sep])
-    pyplot.yticks([y + offset for y in range(len(ys))[::sep]], ys[::sep])
+    pyplot.yticks([y + offset for y in range(len(ys))[sep::sep]], ys[sep::sep])
+
     return plot_obj    
     
 def main(data=None, filename=None, xindex=0, yindex=1, cindex=-1, xfunc=float, yfunc=float, cfunc=float):
