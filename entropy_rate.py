@@ -7,9 +7,8 @@ from numpy.linalg import matrix_power
 from matplotlib import pyplot
 from scipy.misc import comb
 
-from mpsim.math_helpers import normalize, multiply_vectors, dot_product
-from mpsim.incentives import replicator_incentive, replicator_incentive_power, best_reply_incentive, logit_incentive, fermi_incentive
-from mpsim.moran import linear_fitness_landscape, fermi_transform
+from math_helpers import normalize, dot_product
+from incentives import linear_fitness_landscape, replicator, best_reply, fermi, logit
 
 ## Multiprocessing support functions for multi-core processors ##
 
@@ -18,23 +17,37 @@ from mpsim.moran import linear_fitness_landscape, fermi_transform
 def constant_generator(x):
     while True:
         yield x
-    
-def params_gen(*args):
-   return izip(*args)
+
+def params_gen(constant_parameters, variable_parameters):
+    """Manage parameters for multiprocessing. Functional parameters cannot be pickled, hence this workaround."""
+    parameters = []
+    #N, process, incentive_name, m, q, eta, w, mutations_name, mu_ab, mu_ba, n = args
+    for p, default in [("N", 10), ("process", "moran"), ("incentive", "replicator"), ("m", [[1,1],[1,1]]), ("q", 1), ("eta", 1), ("w", 1), ("mutations", "uniform"), ("mu_ab", 0.01), ("mu_ba", 0.01), ("n", None)]:
+        try:
+            value = constant_generator(constant_parameters[p])
+        except KeyError:
+            try:
+                value = variable_parameters[p]
+            except KeyError:
+                value = constant_generator(default)
+        parameters.append(value)
+    return izip(*parameters)
 
 def compute_entropy_rate_multiprocessing(args):
     """Simple function wrapper for pool.map"""
-    e = single_test(*args)
-    return (args[:-1], e)
+    e = compute_entropy_rate(*args)
+    return (args, e)
    
-def run_batches(args, processes=None, func=compute_entropy_rate_multiprocessing):
+def run_batches(constant_parameters, variable_parameters, num_processes=None, func=compute_entropy_rate_multiprocessing):
     """Runs calculations on multiple processing cores."""
-    if not processes:
-        processes = multiprocessing.cpu_count()
-    params = params_gen(*args)
-    pool = multiprocessing.Pool(processes=processes)
+    if not num_processes:
+        num_processes = multiprocessing.cpu_count()
+    params = params_gen(constant_parameters, variable_parameters)
+    pool = multiprocessing.Pool(processes=num_processes)
     try:
         results = pool.map(func, params)
+        #result = pool.apply_async(func, list(params))
+        #results = result.get()
         pool.close()
         pool.join()
     except KeyboardInterrupt:
@@ -63,81 +76,58 @@ def uniform_mutations(mu_ab=0.001, mu_ba=0.001):
     
 ### Markov process calculations ##
             
-def tridiagonal_entropy_rate(d, s):
+def tridiagonal_entropy_rate(transitions, stationary):
     """Computes entropy rate from transition probabilities d and stationary distribution s."""
     e = 0.
-    for k in d.keys():
+    for k in transitions.keys():
         i = k[0]
-        t = d[k]
-        si = s[i]
+        t = transitions[k]
+        si = stationary[i]
         if (t == 0) or (si == 0):
             continue
-        e += s[i] * t * log(t)
+        e += stationary[i] * t * log(t)
     return -e    
 
-def approximate_entropy_rate(d, s):
+def approximate_entropy_rate(transitions, stationary):
     """Computes entropy rate from transition probabilities d and stationary distribution s."""
     entropies = []
-    for i in range(len(s)):
+    for i in range(len(stationary)):
         e = 0.
-        for j in range(len(s)):
-            k = d[i][j]
+        for j in range(len(stationary)):
+            k = transitions[i][j]
             try:
                 e += -k * log(k)
             except:
                 continue
         entropies.append(e)
-    return dot_product(s, entropies)
+    return dot_product(stationary, entropies)
 
-def tridiagonal_stationary(d, N):
+def tridiagonal_stationary(transitions, N):
     """Computes the stationary distribution of a tridiagonal process from the transition probabilities."""
     ## log space version
     a = [0]
     b = []
     for i in range(0, N):
-        b.append(log(d[(i, i+1)]) - log(d[(i+1, i)]))
+        b.append(log(transitions[(i, i+1)]) - log(transitions[(i+1, i)]))
         a.append(a[-1] + b[-1])
     p = [-1. * numpy.logaddexp.reduce(a)]
     for i in range(1, N+1):
         p.append(p[0] + a[i])
     return numpy.exp(p)
 
-def approximate_stationary(N, d, iterations=None, power_multiple=15):
-    """Approximate the stationary distribution by computing a large power of 
-the transition matrix, using successive squaring."""
-    # Could probably get away with a much smaller number.
+def approximate_stationary(N, transitions, power_multiple=15):
+    """Approximate the stationary distribution by computing a large power of the transition matrix, using successive squaring."""
+    # Could probably get away with a much smaller power.
     power = int(log(N) + power_multiple)
     # Use successive squaring to a large power
-    m = matrix_power(d, 2**power)
+    m = matrix_power(transitions, 2**power)
     # Each row is the stationary distribution
     return m[0]
     
-def single_test(*args):
-    test_func = args[-1]
-    args = args[:-1]
-    if not test_func:
-        test_func = moran_test
-    return test_func(*args)
-
-def test_prep(N, m, incentive_func=None, eta=None, mutation_func=None, mu_ab=0.001, mu_ba=0.001):
-    fitness_landscape = linear_fitness_landscape(m)
-    if not incentive_func:
-        incentive_func = replicator_incentive
-    if not eta:
-        incentive = incentive_func(fitness_landscape)
-    else:
-        incentive = incentive_func(fitness_landscape, eta)
-    if not mutation_func:
-        mutation_func = boundary_mutations
-    mutations = mutation_func(mu_ab=mu_ab, mu_ba=mu_ba)
-    return (fitness_landscape, incentive, mutations)
-    
 ## Moran Process   
     
-def moran_transitions(N, fitness_landscape=None, incentive=None, mutations=None, w=None):
+def moran_transitions(N, incentive, mutations, w=None):
     """Computes transition probabilities for the Markov process. Since the transition matrix is tri-diagonal (i.e. sparse), use a dictionary."""
-    if not mutations:
-        mutations = boundary_mutations()
     if not w:
         w = 1.
     d = dict()
@@ -149,10 +139,7 @@ def moran_transitions(N, fitness_landscape=None, incentive=None, mutations=None,
     d[(N, N)] = 1. - nu
     for a in range(1, N):
         b = N - a
-        if incentive:
-            i = normalize(incentive([a,b]))
-        else:
-            i = normalize(multiply_vectors([a, b], fitness_landscape([a,b])))
+        i = normalize(incentive([a,b]))
         i[0] = 1. - w + w * i[0]
         i[1] = 1. - w + w * i[1]
         mu, nu = mutations(N, a)
@@ -163,26 +150,25 @@ def moran_transitions(N, fitness_landscape=None, incentive=None, mutations=None,
         d[(a, a)] = 1. - up - down
     return d
 
-def moran_test(N, m, incentive_func=None, eta=None, w=None, mutation_func=None, mu_ab=0.001, mu_ba=0.001, verbose=False, report=False):
+def moran_entropy_rate(N, incentive, mutations, w=None, verbose=False, report=False):
     """Compute the entropy rate for a single Markov process defined by the parameters."""
-    (fitness_landscape, incentive, mutations) = test_prep(N, m, incentive_func=incentive_func, eta=eta, mutation_func=mutation_func, mu_ab=mu_ab, mu_ba=mu_ba)
-    d = moran_transitions(N, incentive=incentive, mutations=mutations, w=w)
-    s = tridiagonal_stationary(d, N)
-    e = tridiagonal_entropy_rate(d, s)
+    transitions = moran_transitions(N, incentive=incentive, mutations=mutations, w=w)
+    stationary = tridiagonal_stationary(transitions, N)
+    e = tridiagonal_entropy_rate(transitions, stationary)
     if verbose:
-        print s
+        print stationary
         for k in sorted(d.keys()):
-            print k, d[k]
+            print k, transitions[k]
     if not report:
         return e
-    return (e, s, d)
+    return (e, stationary, transitions)
 
 ## n-fold Moran
 
-def n_fold_moran_transitions(N, fitness_landscape=None, incentive=None, mutations=None, w=None, n=None):
+def n_fold_moran_transitions(N, incentive, mutations, w=None, n=None):
     if not n:
         n = N
-    d = moran_transitions(N, fitness_landscape=fitness_landscape, incentive=incentive, mutations=mutations, w=w)
+    d = moran_transitions(N, incentive, mutations, w=w)
     # Convert to matrix
     m = numpy.zeros((N+1, N+1))
     for k in d.keys():
@@ -192,27 +178,22 @@ def n_fold_moran_transitions(N, fitness_landscape=None, incentive=None, mutation
     transitions = matrix_power(m, n)
     return transitions
 
-def n_fold_moran_test(N, m, incentive_func=None, eta=None, w=None, mutation_func=None, mu_ab=0.001, mu_ba=0.001, verbose=False, report=False):
+def n_fold_moran_entropy_rate(N, incentive, mutations, w=None, verbose=False, report=False, n=None):
     """Thin wrapper for approximate_test for code readability."""
-    (fitness_landscape, incentive, mutations) = test_prep(N, m, incentive_func=incentive_func, eta=eta, mutation_func=mutation_func, mu_ab=mu_ab, mu_ba=mu_ba)
     transitions = moran_transitions(N, incentive=incentive, mutations=mutations, w=w)
-    s = tridiagonal_stationary(transitions, N)
-    d = n_fold_moran_transitions(N, incentive=incentive, mutations=mutations, w=w)
-    e = approximate_entropy_rate(d,s)
+    stationary = tridiagonal_stationary(transitions, N)
+    transitions = n_fold_moran_transitions(N, incentive, mutations, w=w, n=n)
+    e = approximate_entropy_rate(transitions, stationary)
     if verbose:
         print s
-        #for k in sorted(d.keys()):
-            #print k, d[k]
     if not report:
         return e
-    return (e, s, d)       
+    return (e, stationary, transitions)
 
 ## Wright Fisher Process  
 
-def wright_fisher_transitions(N, fitness_landscape=None, incentive=None, mutations=None, w=None):
+def wright_fisher_transitions(N, incentive, mutations, w=None):
     """Computes transition probabilities for the Markov process. Since the transition matrix is tri-diagonal (i.e. sparse), use a dictionary."""
-    if not mutations:
-        mutations = boundary_mutations()
     if not w:
         w = 1.
     d = dict()
@@ -225,10 +206,8 @@ def wright_fisher_transitions(N, fitness_landscape=None, incentive=None, mutatio
     d[N][N] = 1 - nu
     for a in range(1, N):
         b = N - a
-        if incentive:
-            i = normalize(incentive([a,b]))
-        else:
-            i = normalize(multiply_vectors([a, b], fitness_landscape([a,b])))
+        #i = normalize(multiply_vectors([a, b], fitness_landscape([a,b])))
+        i = normalize(incentive([a,b]))
         i[0] = 1. - w + w * i[0]
         i[1] = 1. - w + w * i[1]
         mu, nu = mutations(N, a)
@@ -241,28 +220,59 @@ def wright_fisher_transitions(N, fitness_landscape=None, incentive=None, mutatio
                 d[a][j] = comb(N,j, exact=True) * exp(j * log(up) + (N-j) * log(down))
     return d
     
-def wright_fisher_test(N, m, incentive_func=None, eta=None, w=None, mutation_func=None, mu_ab=0.001, mu_ba=0.001, verbose=False, report=False):
-#def wright_fisher_test(*args, **kwargs):
+def wright_fisher_entropy_rate(N, incentive, mutations, w=None, verbose=False, report=False):
     """Thin wrapper for approximate_test for code readability."""
-    (fitness_landscape, incentive, mutations) = test_prep(N, m, incentive_func=incentive_func, eta=eta, mutation_func=mutation_func, mu_ab=mu_ab, mu_ba=mu_ba)
-    d = wright_fisher_transitions(N, incentive=incentive, mutations=mutations, w=w)    
-    s = approximate_stationary(N, d)
-    e = approximate_entropy_rate(d,s)
+    transitions = wright_fisher_transitions(N, incentive=incentive, mutations=mutations, w=w)    
+    stationary = approximate_stationary(N, transitions)
+    e = approximate_entropy_rate(transitions, stationary)
     if verbose:
         print s
-        #for k in sorted(d.keys()):
-            #print k, d[k]
     if not report:
         return e
-    return (e, s, d)    
-    
+    return (e, stationary, transitions)    
+
+def compute_entropy_rate(N, process="moran", incentive="replicator", m=[[1,1],[1,1]], q=1, eta=None, w=None, mutations=None, mu_ab=None, mu_ba=None, n=None, verbose=False, report=False):
+    """Convenience function for unifying call procedure for the various processes."""
+    #N, process, incentive_name, m, q, eta, w, mutations_name, mu_ab, mu_ba, n = args
+    fitness_landscape = linear_fitness_landscape(m)
+    incentive_name = incentive
+    if incentive_name == "replicator":
+        incentive = replicator(fitness_landscape, q=q)
+    elif incentive_name == "best_reply":
+        incentive = best_reply(fitness_landscape)
+    elif incentive_name == "logit":
+        incentive = logit(fitness_landscape, eta)
+    elif incentive_name == "fermi":
+        incentive = best_reply(fitness_landscape, eta)
+    else:
+        raise ValueError, "Argument 'incentive' must be 'replicator', 'best_reply', 'fermi', or 'logit'"
+    mutations_name = mutations
+    if mutations_name == "uniform":
+        mutations = uniform_mutations(mu_ab, mu_ba)
+    elif mutations_name == "boundary":
+        mutations = boundary_mutations(mu_ab, mu_ba)
+    else:
+        raise ValueError, "Argument 'mutations' must be 'uniform', or 'boundary'"        
+    process = process.lower()
+    if process == "moran":
+        r = moran_entropy_rate(N, incentive, mutations, w=w, verbose=verbose, report=report)
+    elif process == "wright-fisher":
+        r = wright_fisher_entropy_rate(N, incentive, mutations, w=w, verbose=verbose, report=report)
+    elif process == "n-fold-moran":
+        r = n_fold_moran_entropy_rate(N, incentive, mutations, w=w, verbose=verbose, report=report, n=n)
+    else:
+        raise ValueError, "Argument 'process' must be 'moran', 'n-fold-moran', or 'wright-fisher'"
+    return r    
+
 if __name__ == '__main__':
-    m = [[1,1],[1,1]]
-    N = 1000
-    mu = 0.01
-    (e,s,d) = approximate_entropy_test(N, m, report=True, mu_ab=mu, mu_ba=mu)
-    print e
-
-
+    # Simple example for each process process.
+    N = 50
+    mutations = uniform_mutations(mu_ab=0.001, mu_ba=0.001)
+    m = [[1,2],[2,1]]
+    fitness_landscape = linear_fitness_landscape(m)
+    incentive = replicator_incentive(fitness_landscape, q=1.15)
+    for process in ["moran", "n-fold-moran", "wright-fisher"]:
+        (entropy_rate, stationary_distribution, transitions) = compute_entropy_rate(N, incentive, mutations, process=process, report=True)
+        print process, entropy_rate
 
     
